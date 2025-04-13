@@ -10,13 +10,13 @@ const TVNostalgia = () => {
   const vcrEffectRef = useRef<any>(null);
   
   const videoIds = [
-    "c4CVKbVtTsc",
-    "143aXLat70E",
-    "J5SSsT1O9gE",
-    "dAiomIGB3qo",
-    "lk6JNSv-vY",
-    "7PgJLyeb6sM",
-    "wz0A7m1euy0"
+    "dG2yaHAqTVM",
+    "UTKfL9W6j3s",
+    "0oQXAxIyZAg",
+    "0522U6b6rBU",
+    "G5ZIg5KD5G8",
+    "iphbVjnNuyU",
+    "4f5whz4UBfQ"
   ];
   const currentVideoIndex = useRef(0);
 
