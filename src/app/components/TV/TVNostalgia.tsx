@@ -1,14 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useMemo } from 'react'; // Added useCallback and useMemo
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import styles from './TVNostalgia.module.css';
 
-// Moved VCREffect class outside the component to avoid recreation on every render
 class VCREffect {
-    public vcrInterval: number | null = null; // Changed from private to public
+    public vcrInterval: number | null = null;
     private canvas: HTMLCanvasElement;
     private ctx: CanvasRenderingContext2D;
-    public config: { // Changed from private to public
+    public config: {
         fps: number;
         blur: number;
         opacity: number;
@@ -26,7 +25,10 @@ class VCREffect {
         num: number;
     }> = {}) {
         this.canvas = canvas;
-        this.ctx = canvas.getContext("2d")!;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Could not get canvas context");
+        this.ctx = context;
+        
         this.config = {
             fps: 60,
             blur: 1,
@@ -41,8 +43,7 @@ class VCREffect {
     }
 
     private init() {
-        this.canvas.width = window.innerWidth;
-        this.canvas.height = window.innerHeight;
+        this.updateCanvasSize();
         this.canvas.style.position = "absolute";
         this.canvas.style.top = "0";
         this.canvas.style.left = "0";
@@ -52,19 +53,17 @@ class VCREffect {
         window.addEventListener("resize", () => this.onResize());
     }
 
+    private updateCanvasSize() {
+        this.canvas.width = this.canvas.offsetWidth;
+        this.canvas.height = this.canvas.offsetHeight;
+    }
+
     private onResize() {
-        this.canvas.width = window.innerWidth;
-        this.canvas.height = window.innerHeight;
+        this.updateCanvasSize();
     }
 
     private generateVCRNoise() {
-        if (this.vcrInterval !== null) {
-            if (this.config.fps >= 60) {
-                cancelAnimationFrame(this.vcrInterval);
-            } else {
-                clearInterval(this.vcrInterval);
-            }
-        }
+        this.clearInterval();
 
         if (this.config.fps >= 60) {
             const animate = () => {
@@ -76,6 +75,17 @@ class VCREffect {
             this.vcrInterval = window.setInterval(() => {
                 this.renderTrackingNoise();
             }, 1000 / this.config.fps);
+        }
+    }
+
+    private clearInterval() {
+        if (this.vcrInterval !== null) {
+            if (this.config.fps >= 60) {
+                cancelAnimationFrame(this.vcrInterval);
+            } else {
+                clearInterval(this.vcrInterval);
+            }
+            this.vcrInterval = null;
         }
     }
 
@@ -121,37 +131,64 @@ class VCREffect {
         max = Math.floor(max);
         return Math.floor(Math.random() * (max - min + 1)) + min;
     }
+
+    public destroy() {
+        this.clearInterval();
+        window.removeEventListener("resize", () => this.onResize());
+    }
 }
 
 const TVNostalgia = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const iframeRef = useRef<HTMLIFrameElement>(null);
+    const videoRef = useRef<HTMLVideoElement>(null);
     const snowEffectRef = useRef<HTMLDivElement>(null);
     const vcrEffectRef = useRef<VCREffect | null>(null);
+    const [userInteracted, setUserInteracted] = useState(false);
+    const [isPlaying, setIsPlaying] = useState(false);
 
-    // Wrapped videoIds in useMemo to prevent recreation on every render
-    const videoIds = useMemo(() => [
-        "dG2yaHAqTVM",
-        "UTKfL9W6j3s",
-        "0oQXAxIyZAg",
-        "0522U6b6rBU",
-        "G5ZIg5KD5G8",
-        "iphbVjnNuyU",
-        "4f5whz4UBfQ"
+    const videoSources = useMemo(() => [
+        "/assets/btv.mp4",
+        "/assets/atn1.mp4",
+        "/assets/boi.mp4",
+        "/assets/dd.mp4",
+        "/assets/ntv.mp4",
+        "/assets/ekushe.mp4",
     ], []);
 
     const currentVideoIndex = useRef(0);
 
-    const switchToNextVideo = useCallback(() => {
-        if (!snowEffectRef.current || !iframeRef.current) return;
+    const handleUserInteraction = useCallback(() => {
+        if (!userInteracted) {
+            setUserInteracted(true);
+            if (videoRef.current) {
+                videoRef.current.muted = false;
+                videoRef.current.play().catch(e => {
+                    console.error("Playback with sound failed, falling back to muted:", e);
+                    videoRef.current!.muted = true;
+                    videoRef.current!.play().catch(e => console.error("Muted playback failed:", e));
+                });
+            }
+        }
+    }, [userInteracted]);
+
+    const switchToNextVideo = useCallback(async () => {
+        if (!snowEffectRef.current || !videoRef.current) return;
         
-        snowEffectRef.current.style.opacity = '1';
-        setTimeout(() => {
-            currentVideoIndex.current = (currentVideoIndex.current + 1) % videoIds.length;
-            iframeRef.current!.src = `https://www.youtube.com/embed/${videoIds[currentVideoIndex.current]}?autoplay=1&controls=0&loop=1&mute=1`;
-            snowEffectRef.current!.style.opacity = '0';
-        }, 2000);
-    }, [videoIds]);
+        try {
+            snowEffectRef.current.style.opacity = '1';
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            currentVideoIndex.current = (currentVideoIndex.current + 1) % videoSources.length;
+            videoRef.current.src = videoSources[currentVideoIndex.current];
+            
+            await videoRef.current.play();
+            snowEffectRef.current.style.opacity = '0';
+            setIsPlaying(true);
+        } catch (error) {
+            console.error("Video playback error:", error);
+            setIsPlaying(false);
+        }
+    }, [videoSources]);
 
     useEffect(() => {
         // Initialize VCR effect
@@ -167,41 +204,54 @@ const TVNostalgia = () => {
         }
 
         // Set up video rotation
-        const iframe = iframeRef.current;
-        if (iframe) {
-            const handleLoad = () => {
-                setTimeout(switchToNextVideo, 20000);
-            };
-            iframe.addEventListener('load', handleLoad);
-            return () => {
-                iframe.removeEventListener('load', handleLoad);
-                // Clean up VCR effect
-                if (vcrEffectRef.current && vcrEffectRef.current.vcrInterval !== null) {
-                    if (vcrEffectRef.current.config.fps >= 60) {
-                        cancelAnimationFrame(vcrEffectRef.current.vcrInterval);
-                    } else {
-                        clearInterval(vcrEffectRef.current.vcrInterval);
-                    }
+        const video = videoRef.current;
+        if (video) {
+            video.src = videoSources[0];
+            video.muted = true; // Start muted to allow autoplay
+            video.loop = true;
+            
+            const playVideo = async () => {
+                try {
+                    await video.play();
+                    setIsPlaying(true);
+                } catch (error) {
+                    console.error("Initial muted autoplay failed:", error);
+                    setIsPlaying(false);
                 }
             };
+
+            playVideo();
+            
+            const rotationTimer = setInterval(switchToNextVideo, 20000);
+            
+            return () => {
+                clearInterval(rotationTimer);
+                vcrEffectRef.current?.destroy();
+            };
         }
-    }, [switchToNextVideo]);
+    }, [switchToNextVideo, videoSources]);
 
     return (
-        <div className={styles.container}>
+        <div className={styles.container} onClick={handleUserInteraction}>
             <div className={styles.tvScreen}></div>
             <div className={styles.tvContainer}>
+                {!isPlaying && (
+                    <div className={styles.playPrompt}>
+                        Click anywhere to enable sound
+                    </div>
+                )}
+                
                 <canvas ref={canvasRef} className={styles.canvas}></canvas>
-                <iframe
-                    ref={iframeRef}
-                    className={styles.iframe}
+                <video
+                    ref={videoRef}
+                    className={styles.video}
                     width="720"
                     height="540"
-                    src={`https://www.youtube.com/embed/${videoIds[0]}?autoplay=1&controls=0&loop=1&mute=1`}
-                    frameBorder="0"
-                    allow="autoplay; encrypted-media; picture-in-picture"
-                    allowFullScreen
-                ></iframe>
+                    muted={!userInteracted}
+                    loop
+                    playsInline
+                    autoPlay
+                />
                 <div className={styles.glitch}></div>
                 <div className={styles.scanLines}></div>
                 <div ref={snowEffectRef} className={styles.snowEffect}></div>
